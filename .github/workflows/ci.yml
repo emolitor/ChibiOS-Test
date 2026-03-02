@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Native RT kernel test suite (POSIX simulator, 35 configurations)
+  # Builds, runs, and collects gcov coverage for each kernel config variant.
+  # ---------------------------------------------------------------------------
+  rt-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc make
+
+      - name: Run RT test suite
+        working-directory: test/rt/testbuild
+        run: bash go-test.sh
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rt-test-reports
+          path: test/rt/testbuild/reports/
+
+  # ---------------------------------------------------------------------------
+  # Static analysis with cppcheck (replaces PC-Lint MISRA)
+  # Runs against the RT kernel, NIL kernel, OS library, and HAL sources.
+  # ---------------------------------------------------------------------------
+  cppcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+
+      - name: Analyse RT kernel
+        run: |
+          cppcheck --enable=warning,style,performance,portability \
+                   --suppress=missingIncludeSystem \
+                   --suppress=toomanyconfigs \
+                   --error-exitcode=1 \
+                   --inline-suppr \
+                   -I os/rt/include \
+                   -I os/oslib/include \
+                   -I os/common/ports/SIMX86_64 \
+                   -I os/common/ports/SIMX86_64/compilers/GCC \
+                   -I os/license \
+                   os/rt/src/
+
+      - name: Analyse NIL kernel
+        run: |
+          cppcheck --enable=warning,style,performance,portability \
+                   --suppress=missingIncludeSystem \
+                   --suppress=toomanyconfigs \
+                   --error-exitcode=1 \
+                   --inline-suppr \
+                   -I os/nil/include \
+                   -I os/oslib/include \
+                   -I os/license \
+                   os/nil/src/
+
+      - name: Analyse HAL
+        run: |
+          cppcheck --enable=warning,style,performance,portability \
+                   --suppress=missingIncludeSystem \
+                   --suppress=toomanyconfigs \
+                   --error-exitcode=1 \
+                   --inline-suppr \
+                   -I os/hal/include \
+                   -I os/hal/osal/rt-nil \
+                   -I os/license \
+                   os/hal/src/
+
+  # ---------------------------------------------------------------------------
+  # Cross-compile STM32 demos (representative set across chip families)
+  # ---------------------------------------------------------------------------
+  build-stm32:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        demo:
+          # Cortex-M0/M0+
+          - RT-STM32F030R8-NUCLEO64
+          - RT-STM32F072-DISCOVERY
+          - NIL-STM32C031C6-NUCLEO64
+          # Cortex-M3
+          - RT-STM32F103-OLIMEX_STM32_P103
+          - RT-STM32F107-OLIMEX_P107-LWIP
+          # Cortex-M4
+          - RT-STM32F303-DISCOVERY
+          - RT-STM32F407-DISCOVERY
+          - RT-STM32F407-DISCOVERY-G++
+          - RT-STM32F429-DISCOVERY
+          - RT-STM32F446RE-NUCLEO64
+          - NIL-STM32G474RE-NUCLEO64
+          - HAL-STM32F407-DISCOVERY
+          # Cortex-M7
+          - RT-STM32F746G-DISCOVERY
+          - RT-STM32F769I-DISCOVERY
+          # Cortex-M33
+          - RT-STM32L552ZE-NUCLEO144
+          - RT-STM32H563ZI-NUCLEO144-SB_HOST_SWITCHED
+          # Low-power
+          - RT-STM32L053-DISCOVERY
+          - RT-STM32L476-DISCOVERY
+          - NIL-STM32L011K4-NUCLEO32
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
+
+      - name: Build ${{ matrix.demo }}
+        run: make -j$(nproc) -C demos/STM32/${{ matrix.demo }}
+
+  # ---------------------------------------------------------------------------
+  # Cross-compile RP2040/RP2350 demos
+  # ---------------------------------------------------------------------------
+  build-rp:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        demo:
+          - RT-RP2040-PICO
+          - RT-RP2350-BLINK
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
+
+      - name: Build ${{ matrix.demo }}
+        run: make -j$(nproc) -C demos/RP/${{ matrix.demo }}
+
+  # ---------------------------------------------------------------------------
+  # Cross-compile AVR demos
+  # ---------------------------------------------------------------------------
+  build-avr:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        demo:
+          - RT-ARDUINO-UNO
+          - RT-ARDUINO-MEGA
+          - NIL-ARDUINO-NANO
+          - RT-ARDUINO-UNO-G++
+          - TEST-SUITE-RT
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install AVR toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-avr avr-libc
+
+      - name: Build ${{ matrix.demo }}
+        run: make -j$(nproc) -C demos/AVR/${{ matrix.demo }}
+
+  # ---------------------------------------------------------------------------
+  # Cross-compile NIL and HAL test builds (ARM)
+  # ---------------------------------------------------------------------------
+  build-test-targets:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - test/nil/testbuild
+          - test/hal/testbuild
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
+
+      - name: Build ${{ matrix.target }}
+        run: make -j$(nproc) -C ${{ matrix.target }}
