@@ -46,6 +46,7 @@ jobs:
         run: |
           cppcheck --enable=warning,style,performance,portability \
                    --suppress=missingIncludeSystem \
+                   --suppress=toomanyconfigs \
                    --error-exitcode=1 \
                    --inline-suppr \
                    -I os/rt/include \
@@ -59,6 +60,7 @@ jobs:
         run: |
           cppcheck --enable=warning,style,performance,portability \
                    --suppress=missingIncludeSystem \
+                   --suppress=toomanyconfigs \
                    --error-exitcode=1 \
                    --inline-suppr \
                    -I os/nil/include \
@@ -70,6 +72,7 @@ jobs:
         run: |
           cppcheck --enable=warning,style,performance,portability \
                    --suppress=missingIncludeSystem \
+                   --suppress=toomanyconfigs \
                    --error-exitcode=1 \
                    --inline-suppr \
                    -I os/hal/include \
